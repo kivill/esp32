@@ -4,6 +4,7 @@
 // Temp sensor
 #include "DHT.h"
 #define DHTPIN 17
+#define MQ2 34
 #define DHTTYPE DHT22
 DHT dht(DHTPIN, DHTTYPE);
 float temperature;
@@ -150,7 +151,7 @@ int lastButtonState = 0;   // previous state of the button
 
 #include <PubSubClient.h>
 const char *mqtt_server = "192.168.100.4";
-const char *deviceId = "ESP32_1";
+const char *deviceId = "ESP32_2";
 long lastMsg = 0;
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -176,16 +177,16 @@ void callback(char *topic, byte *message, unsigned int length)
 
   // If a message is received on the topic esp32/output, you check if the message is either "on" or "off".
   // Changes the output state according to the message
-  if (String(topic) == "esp32/output" && doc["deviceId"] == deviceId)
+  if (String(topic) == "esp32/input" && doc["data"]["deviceId"] == deviceId)
   {
-    if (doc["sensorId"] == "button")
+    if (doc["data"]["sensorId"] == "light")
     {
-      if (doc["value"] == 1)
+      if (doc["data"]["value"] == 1)
       {
         Serial.println("on");
         digitalWrite(LED_PIN, HIGH);
       }
-      else if (doc["value"] == 0)
+      else if (doc["data"]["value"] == 0)
       {
         Serial.println("off");
         digitalWrite(LED_PIN, LOW);
@@ -205,7 +206,7 @@ void reconnect()
     {
       Serial.println("connected");
       // Subscribe
-      client.subscribe("esp32/output");
+      client.subscribe("esp32/input");
     }
     else
     {
@@ -226,7 +227,7 @@ void connectmqtt()
     // Once connected, publish an announcement...
 
     // ... and resubscribe
-    client.subscribe("esp32/output"); //topic=Demo
+    client.subscribe("esp32/input"); //topic=Demo
     client.publish("esp32/output", "connected to MQTT");
 
     if (!client.connected())
@@ -235,16 +236,18 @@ void connectmqtt()
     }
   }
 }
-
+int mq2state = 0;
 void setup()
 {
   Serial.begin(9600);
   initWiFi();
-  initDHT();
-  client.setServer(mqtt_server, 1883);
+  // initDHT();
+  // client.setServer(mqtt_server, 1883);
+  client.setServer("3.tcp.eu.ngrok.io", 20705);
   client.setCallback(callback);
   pinMode(LED_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT);
+  pinMode(MQ2, INPUT);
   reconnect();
   // // Handle Web Server
   // server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -285,7 +288,7 @@ void loop()
       doc["sensorId"] = "button";
       doc["value"] = 1;
       serializeJson(doc, tempButton);
-      client.publish("esp32/output", tempButton);
+      client.publish("esp32/input", tempButton);
     }
     else
     {
@@ -295,17 +298,27 @@ void loop()
       doc["sensorId"] = "button";
       doc["value"] = 0;
       serializeJson(doc, tempButton);
-      client.publish("esp32/output", tempButton);
+      client.publish("esp32/input", tempButton);
     }
     delay(50);
   }
   // save the current state as the last state,
   //for next time through the loop
   lastButtonState = buttonState;
-  if (now - lastMsg > 60000)
+  if (now - lastMsg > 5000)
   {
+    StaticJsonDocument<200> doc;
+    mq2state = analogRead(MQ2);
+    char tempMQ2[200];
+    doc["deviceId"] = deviceId;
+    doc["sensorId"] = "gas";
+    doc["value"] = mq2state;
+    serializeJson(doc, tempMQ2);
+    client.publish("esp32/output", tempMQ2);
+    buttonState = digitalRead(BUTTON_PIN);
+
     lastMsg = now;
-    getSensorReadings();
+    // getSensorReadings();
     Serial.printf("IP: ");
     Serial.print(WiFi.localIP());
     Serial.println();
@@ -317,7 +330,7 @@ void loop()
     char humString[200];
     // dtostrf(temperature, 1, 2, tempString);
     // dtostrf(humidity, 1, 2, humString);
-    StaticJsonDocument<200> doc;
+    // StaticJsonDocument<200> doc;
     doc["deviceId"] = deviceId;
     doc["sensorId"] = "temperature";
     doc["value"] = temperature;
